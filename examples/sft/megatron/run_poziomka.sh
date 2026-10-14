@@ -10,6 +10,8 @@ source "${SCRIPT_DIR}/poziomka_model_args.sh"
 : "${SAVE_CHECKPOINT:?Set SAVE_CHECKPOINT to a new SFT output directory}"
 : "${TRAIN_ITERS:?Set TRAIN_ITERS explicitly (start with a small smoke run)}"
 MEGATRON_PATH="${MEGATRON_PATH:-${REPO_DIR}/Megatron-LM-core_v0.13.0}"
+# KD runs (run_poziomka_kd_run*.sh) swap the entry point; SFT keeps the default.
+TRAIN_SCRIPT="${TRAIN_SCRIPT:-train_poziomka_sft.py}"
 SEQ_LENGTH="${SEQ_LENGTH:-8192}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-128}"
 # Off by default so runs 1 and 2 replay exactly. PACKING=1 packs several
@@ -56,7 +58,7 @@ export NCCL_NVLS_ENABLE="${NCCL_NVLS_ENABLE:-0}"
 export NCCL_CUMEM_ENABLE="${NCCL_CUMEM_ENABLE:-0}"
 export PYTHONPATH="${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
 
-torchrun --standalone --nproc_per_node=8 "${SCRIPT_DIR}/train_poziomka_sft.py" \
+torchrun --standalone --nproc_per_node=8 "${SCRIPT_DIR}/${TRAIN_SCRIPT}" \
     "${POZIOMKA_MODEL_ARGS[@]}" \
     --sft-manifest "${SFT_DATA}/manifest.json" \
     --tokenizer-type HuggingFaceTokenizer --tokenizer-model "${SFT_DATA}/tokenizer" \

@@ -11,8 +11,8 @@ set -euo pipefail
 # masa top-10 0.9814. KD na wszystkich tokenach poza BOS (jak loss run 15).
 #
 # Start: koncowy checkpoint run 15 (iter 5214), --finetune (liczniki od zera).
-# Przepis jak run 15 (GBS 16, warmup 20, 1 epoka, walidacja i zapisy w tych samych odstepach),
-# ale LR 2e-4 zamiast 1,03e-4.
+# Przepis jak run 15 (GBS 16, warmup 20, 1 epoka), ale LR 2e-4 zamiast 1,03e-4 i zapis/walidacja
+# co 1000 krokow.
 #
 # Wznowienie po przerwaniu: RESUME=1 bash run_poziomka_kd_run16.sh (ostatni checkpoint tego runu,
 # bez optymalizatora i bez warmupu, jak w run 15).
@@ -57,8 +57,10 @@ export WARMUP_ITERS=20
 export TRAIN_ITERS=5214
 # Cala walidacja: 830 sekwencji, 52 x 16 = 832.
 export EVAL_ITERS=52
-export SAVE_INTERVAL=652
-export EVAL_INTERVAL=326
+# Zapis i walidacja co 1000 krokow: 1000, 2000, 3000, 4000, 5000 plus koncowy zapis na 5214
+# (6 checkpointow, ~46 GB).
+export SAVE_INTERVAL=1000
+export EVAL_INTERVAL=1000
 export DATALOADER_WORKERS=2
 export ASYNC_SAVE=0
 export ROUTER_BIAS_UPDATE_RATE=0

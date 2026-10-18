@@ -40,8 +40,13 @@ if [[ "${RESUME}" == 1 ]]; then
 else
     export LOAD_CHECKPOINT="${RUN15}"
 fi
-# Artefakty W&B na nvme: na / zabraklo miejsca w run 15 (crash po zapisie checkpointu).
-export WANDB_DIR="${WANDB_DIR:-/media/nvme_2tb/wandb}"
+# W&B na nvme. Katalog runu Megatron i tak daje do <SAVE_CHECKPOINT>/wandb (wandb.init(dir=...),
+# WANDB_DIR nic nie zmienia), ale artefakty checkpointow ida przez staging (WANDB_DATA_DIR,
+# domyslnie ~/.local/share/wandb) i cache (WANDB_CACHE_DIR, ~/.cache/wandb) na / -- tam w run 15
+# zabraklo miejsca zaraz po zapisie checkpointu.
+export WANDB_DATA_DIR="${WANDB_DATA_DIR:-/media/nvme_2tb/wandb/data}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/media/nvme_2tb/wandb/cache}"
+mkdir -p "${WANDB_DATA_DIR}" "${WANDB_CACHE_DIR}"
 
 export SEQ_LENGTH=16384
 export MAX_POSITION_EMBEDDINGS=16384

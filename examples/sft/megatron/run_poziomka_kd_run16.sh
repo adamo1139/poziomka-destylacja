@@ -11,8 +11,8 @@ set -euo pipefail
 # masa top-10 0.9814. KD na wszystkich tokenach poza BOS (jak loss run 15).
 #
 # Start: koncowy checkpoint run 15 (iter 5214), --finetune (liczniki od zera).
-# Przepis jak run 15 (GBS 16, LR 1,03e-4, warmup 20, 1 epoka, walidacja i zapisy w tych samych
-# odstepach), wiec jedyna roznica wobec dalszego SFT to loss.
+# Przepis jak run 15 (GBS 16, warmup 20, 1 epoka, walidacja i zapisy w tych samych odstepach),
+# ale LR 2e-4 zamiast 1,03e-4.
 #
 # Wznowienie po przerwaniu: RESUME=1 bash run_poziomka_kd_run16.sh (ostatni checkpoint tego runu,
 # bez optymalizatora i bez warmupu, jak w run 15).
@@ -49,8 +49,9 @@ export ROTARY_BASE=640000
 # KD jest zawsze pakowane (train_poziomka_kd.py); --sft-packing nie istnieje w KD.
 export PACKING=0
 export GLOBAL_BATCH_SIZE=16
-# Jak run 15: GBS 16 x 15,569 = 249,1k tokenow na krok -> 3e-4 * sqrt(0,119) = 1,03e-4.
-export LR=1.03e-4
+# Stale 2e-4, ~2x reguly pierwiastkowej z run 15 (1,03e-4 przy 249,1k tokenow na krok):
+# KD na danych, ktore uczen juz widzial w run 15, wiec mozna isc szybciej.
+export LR=2e-4
 export WARMUP_ITERS=20
 # Jedna epoka: 83,423 / 16 -> 5214.
 export TRAIN_ITERS=5214

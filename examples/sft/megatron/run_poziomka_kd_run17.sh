@@ -12,7 +12,7 @@ set -euo pipefail
 # - loss tylko na odpowiedziach asystenta: cache z --loss-roles assistant (tury uzytkownika
 #   i naglowki rol poza lossem - Bielik byl trenowany tylko na odpowiedziach) oraz
 #   --kd-mask-think (blok "<think></think>\n" v13, ktorego Bielik nigdy nie widzial);
-# - LR z reguly pierwiastkowej (1,04e-4 przy GBS 16), nie 2e-4 z run 16.
+# LR, GBS, warmup i loss (reverse KL, top-10) jak w run 16.
 # Benchmark nauczyciela (1000 rekordow, pozycje KD): NLL 0,6025, top-1 0,820, masa top-10 0,9835.
 #
 # Start: koncowy checkpoint run 15 (iter 5214), --finetune.
@@ -49,9 +49,8 @@ export MAX_POSITION_EMBEDDINGS=16384
 export ROTARY_BASE=640000
 export PACKING=0   # KD jest zawsze pakowane
 export GLOBAL_BATCH_SIZE=16
-# Regula pierwiastkowa: v8-nothink ma 15,731 prawdziwych tokenow na sekwencje, przy GBS 16 to
-# 251,7k tokenow na krok = 0,120 pretreningu -> 3e-4 * sqrt(0,120) = 1,04e-4.
-export LR=1.04e-4
+# Jak run 16 (stale 2e-4), zeby porownanie z run 16 dotyczylo nauczyciela i danych, nie LR.
+export LR=2e-4
 export WARMUP_ITERS=20
 export SAVE_INTERVAL=250
 export EVAL_INTERVAL=250

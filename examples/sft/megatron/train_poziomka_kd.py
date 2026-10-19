@@ -13,9 +13,9 @@ from pathlib import Path
 
 import torch
 
-from poziomka_data import load_manifest, sha256
+from poziomka_data import SPECIAL_IDS, load_manifest, sha256
 from poziomka_kd_data import MMapKDDataset, label_coverage
-from poziomka_kd_loss import topk_reverse_kl
+from poziomka_kd_loss import kd_loss_sums
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -33,36 +33,37 @@ def extra_args(parser):
                         help="teacher-topk-v1 directory computed from exactly this cache")
     parser.add_argument("--kd-logit-chunk", type=int, default=1024,
                         help="positions per log-softmax chunk in the KD loss")
+    parser.add_argument("--kd-ce-on-eos", action="store_true",
+                        help="CE instead of KD where the label is <|im_end|> (the data decides when a turn ends)")
     parser.add_argument("--kd-mask-think", action="store_true",
                         help="no loss on the v13 '<think></think>\\n' block (teacher without reasoning)")
     return parser
 
 
 def kd_loss_func(loss_mask, labels, topk_ids, topk_logp, output_tensor):
-    """Sum of per-token reverse KL over supervised positions, plus monitoring metrics.
+    """Sum of per-token losses over supervised positions, plus monitoring metrics.
 
-    Returned in --calculate-per-token-loss form: (sum, tokens, {name: [sum, tokens]}).
-    `student ce` is plain next-token CE on the same logits (comparable with SFT lm loss);
-    `student tail` is the student's mass outside the teacher's top-k, which the bucketed
-    loss under-penalises -- if it grows, the top-k approximation is being exploited.
+    Returned in --calculate-per-token-loss form: (sum, tokens, {name: [sum, count]}). Reverse KL
+    everywhere, or with --kd-ce-on-eos plain CE where the label is <|im_end|> (poziomka_kd_loss.
+    kd_loss_sums). `kd loss` is the KL on KD positions; `student ce` is plain next-token CE on all
+    supervised positions (comparable with SFT lm loss); `student tail` is the student's mass
+    outside the teacher's top-k, which the bucketed loss under-penalises; `eos ce` is the CE on
+    turn ends (only with --kd-ce-on-eos).
     """
     args = get_args()
     vocab = output_tensor.shape[-1]
     mask = loss_mask.view(-1) > 0
-    kl, ce, tail = topk_reverse_kl(
+    loss, metrics = kd_loss_sums(
         output_tensor.reshape(-1, vocab), topk_ids.view(-1, topk_ids.shape[-1]),
-        topk_logp.view(-1, topk_logp.shape[-1]), labels.view(-1), mask, args.kd_logit_chunk)
-    loss = kl.sum()
+        topk_logp.view(-1, topk_logp.shape[-1]), labels.view(-1), mask, args.kd_logit_chunk,
+        ce_token=SPECIAL_IDS["<|im_end|>"] if args.kd_ce_on_eos else None)
     if args.check_for_nan_in_loss_and_grad:
         rerun = get_rerun_state_machine()
         for reject, what in ((torch.isnan, "NaN"), (torch.isinf, "Inf")):
             rerun.validate_result(result=loss, rejection_func=reject, tolerance=0.0, fatal=True,
                                   message=f"found {what} in local KD loss calculation")
     num_tokens = mask.sum().to(torch.int)
-    n = num_tokens.float().view(1)
-    report = {"kd loss": torch.cat([loss.detach().view(1), n]),
-              "student ce": torch.cat([ce.sum().view(1), n]),
-              "student tail": torch.cat([tail.sum().view(1), n])}
+    report = {name: torch.stack([total.float(), count.float()]) for name, (total, count) in metrics.items()}
     return loss, num_tokens, report
 
 
@@ -129,7 +130,7 @@ def datasets_provider(sample_counts):
     print_rank_0(f"KD: {train.record_count} train conversations packed into {train.sample_count} "
                  f"sequences ({100 * train.packing_efficiency():.1f}% real tokens); "
                  f"{valid.record_count} validation; teacher {train.teacher['model']} k={train.k}; "
-                 f"think block masked: {args.kd_mask_think}")
+                 f"think block masked: {args.kd_mask_think}; CE on <|im_end|>: {args.kd_ce_on_eos}")
     return train, valid, None
 
 

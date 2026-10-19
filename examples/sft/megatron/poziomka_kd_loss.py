@@ -84,3 +84,29 @@ class TopKReverseKL(torch.autograd.Function):
 def topk_reverse_kl(logits, ids, teacher_logp, labels, valid, chunk=1024):
     """logits [n, V]; ids/teacher_logp [n, K]; labels [n]; valid [n] bool -> (loss, ce, q_tail)."""
     return TopKReverseKL.apply(logits, ids.long(), teacher_logp, labels.long(), valid.bool(), chunk)
+
+
+def kd_loss_sums(logits, ids, teacher_logp, labels, mask, chunk=1024, ce_token=None):
+    """Loss KD do zsumowania przez Megatron (--calculate-per-token-loss) i metryki [suma, liczba].
+
+    Reverse KL na pozycjach z maską. Z ce_token (np. ID <|im_end|>) pozycje z tym labelem dostają
+    zamiast KL zwykłe CE do tokenu z danych: nauczyciel, który pisałby dłużej niż dane (Bielik v3
+    Instruct daje na końcach tur v8 średnio p(<|im_end|>) = 0,55), nie uczy wtedy ucznia, żeby nie
+    kończył. → (loss_sum z gradientem, {nazwa: (suma, liczba)} bez gradientu).
+    """
+    mask, labels = mask.bool(), labels.long()
+    eos = mask & (labels == ce_token) if ce_token is not None else torch.zeros_like(mask)
+    kd = mask & ~eos
+    kl, ce, tail = topk_reverse_kl(logits, ids, teacher_logp, labels, kd, chunk)
+    loss = kl.sum()
+    n_kd = kd.sum().float()
+    ce_sum = ce.sum()
+    metrics = {"kd loss": (kl.sum().detach(), n_kd), "student tail": (tail.sum(), n_kd)}
+    if ce_token is not None:
+        idx = eos.nonzero(as_tuple=True)[0]
+        eos_ce = -torch.log_softmax(logits[idx].float(), dim=-1).gather(1, labels[idx, None])[:, 0]
+        loss = loss + eos_ce.sum()
+        ce_sum = ce_sum + eos_ce.sum().detach()
+        metrics["eos ce"] = (eos_ce.sum().detach(), eos.sum().float())
+    metrics["student ce"] = (ce_sum, mask.sum().float())
+    return loss, metrics

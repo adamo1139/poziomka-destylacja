@@ -1,7 +1,7 @@
 """CPU checks for poziomka_kd_loss: run with `python3 test_poziomka_kd_loss.py`."""
 import torch
 
-from poziomka_kd_loss import _bucket_terms, topk_reverse_kl
+from poziomka_kd_loss import _bucket_terms, kd_loss_sums, topk_reverse_kl
 
 
 def make(n=37, vocab=300, k=8, seed=0):
@@ -54,6 +54,36 @@ def test_invalid_rows_with_garbage_teacher_stay_finite():
     for t in (loss, ce, q_tail, z.grad.float()):
         assert torch.isfinite(t).all()
     assert (loss[~valid] == 0).all() and (z.grad[~valid] == 0).all()
+
+
+def test_kd_loss_sums_without_ce_matches_plain_kl():
+    z, ids, logp, _, labels, valid = make()
+    loss, m = kd_loss_sums(z, ids, logp, labels, valid, chunk=5)
+    kl, ce, tail = topk_reverse_kl(z, ids, logp, labels, valid, chunk=5)
+    assert torch.allclose(loss, kl.sum()) and "eos ce" not in m
+    assert torch.allclose(m["student ce"][0], ce.sum()) and m["student ce"][1] == valid.sum()
+
+
+def test_kd_loss_sums_ce_on_eos_gradient_and_teacher_ignored():
+    z, ids, logp, _, labels, valid = make()
+    labels[::4] = 4  # część pozycji to <|im_end|>
+    eos, kd = valid & (labels == 4), valid & (labels != 4)
+    z1 = z.clone().requires_grad_()
+    loss, m = kd_loss_sums(z1, ids, logp, labels, valid, chunk=5, ce_token=4)
+    loss.backward()
+    z2 = z.clone().requires_grad_()
+    _, _, _, l, _ = _bucket_terms(z2, ids, logp)
+    ce = -torch.log_softmax(z2, -1).gather(1, labels[:, None])[:, 0]
+    ref = torch.where(kd, l, torch.zeros_like(l)).sum() + torch.where(eos, ce, torch.zeros_like(ce)).sum()
+    ref.backward()
+    assert torch.allclose(loss.double(), ref, atol=1e-5)
+    assert torch.allclose(z1.grad, z2.grad, atol=1e-6), (z1.grad - z2.grad).abs().max()
+    assert m["eos ce"][1] == eos.sum() and m["kd loss"][1] == kd.sum() and m["student ce"][1] == valid.sum()
+    # Wiersze nauczyciela na końcach tur nie mają znaczenia.
+    logp2, ids2 = logp.clone(), ids.clone()
+    logp2[eos], ids2[eos] = -50.0, 7
+    loss2, _ = kd_loss_sums(z, ids2, logp2, labels, valid, chunk=5, ce_token=4)
+    assert torch.allclose(loss2, loss.detach())
 
 
 if __name__ == "__main__":

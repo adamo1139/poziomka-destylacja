@@ -52,7 +52,9 @@ export GLOBAL_BATCH_SIZE=16
 # Jak run 16 (stale 2e-4), zeby porownanie z run 16 dotyczylo nauczyciela i danych, nie LR.
 export LR=2e-4
 export WARMUP_ITERS=20
-export SAVE_INTERVAL=250
+# Tylko koncowy checkpoint: interwal wiekszy niz trening, a Megatron i tak zapisuje na koncu
+# (iteration % save_interval != 0). Bez posrednich zapisow nie ma od czego wznowic po awarii.
+export SAVE_INTERVAL=1000000
 export EVAL_INTERVAL=250
 export DATALOADER_WORKERS=2
 export ASYNC_SAVE=0

@@ -9,8 +9,8 @@ set -euo pipefail
 # CE do danych, a reszta odpowiedzi 100% reverse KL jak w run 17.
 #
 # Reszta jak run 17: nauczyciel Bielik-PL-Minitron-7B-v3.0-Instruct W8A8, v8-nothink 18,75%,
-# loss tylko na odpowiedziach (--loss-roles assistant + --kd-mask-think), LR 2e-4, GBS 16,
-# start z run 15 (iter 5214), tylko koncowy checkpoint.
+# loss tylko na odpowiedziach (--loss-roles assistant + --kd-mask-think), LR 2e-4,
+# GBS 64 zamiast 16, start z run 15 (iter 5214), tylko koncowy checkpoint.
 # Wznowienie: RESUME=1 bash run_poziomka_kd_run18.sh.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +26,7 @@ export TRAIN_SCRIPT=train_poziomka_kd.py
 export SFT_DATA="/media/nvme_2tb/maked/poziomka_train/poziomka-sft-cache-polskie-sprawy-v8-nothink-19pct-v13-16384"
 export TEACHER_TOPK="/media/nvme_2tb/maked/bielik_train/teacher-topk-bielik-v3-instruct-v8-nothink-19pct-k10"
 RUN15="/media/nvme_2tb/maked/poziomka_train/poziomka_sft_run15_polskie_sprawy_v8_v13_16384_gbs16"
-export SAVE_CHECKPOINT="/media/nvme_2tb/maked/poziomka_train/poziomka_kd_run18_bielik_v3_instruct_v8_nothink_19pct_rkl_ceeos_k10_gbs16"
+export SAVE_CHECKPOINT="/media/nvme_2tb/maked/poziomka_train/poziomka_kd_run18_bielik_v3_instruct_v8_nothink_19pct_rkl_ceeos_k10_gbs64"
 export RESUME="${RESUME:-0}"
 if [[ "${RESUME}" == 1 ]]; then
     export LOAD_CHECKPOINT="${SAVE_CHECKPOINT}"
@@ -42,14 +42,16 @@ export SEQ_LENGTH=16384
 export MAX_POSITION_EMBEDDINGS=16384
 export ROTARY_BASE=640000
 export PACKING=0   # KD jest zawsze pakowane
-export GLOBAL_BATCH_SIZE=16
+# GBS 64 (run 17: 16): ~4x mniej krokow, banka PP8 7/71 zamiast 7/23. LR bez zmian (2e-4).
+export GLOBAL_BATCH_SIZE=64
 # Jak run 16 i 17 (stale 2e-4).
 export LR=2e-4
 export WARMUP_ITERS=20
 # Tylko koncowy checkpoint: interwal wiekszy niz trening, a Megatron i tak zapisuje na koncu
 # (iteration % save_interval != 0). Bez posrednich zapisow nie ma od czego wznowic po awarii.
 export SAVE_INTERVAL=1000000
-export EVAL_INTERVAL=250
+# ~197 krokow przy GBS 64: walidacja co 50 (i na koncu).
+export EVAL_INTERVAL=50
 export DATALOADER_WORKERS=2
 export ASYNC_SAVE=0
 export ROUTER_BIAS_UPDATE_RATE=0
@@ -97,7 +99,7 @@ export TRAIN_ITERS EVAL_ITERS
 
 export WANDB_ENTITY="adamo1139-no"
 export WANDB_PROJECT="poziomka-destylacja"
-export WANDB_NAME="poziomka_kd_run18_bielik_v3_instruct_v8_nothink_19pct_rkl_ceeos_k10_gbs16_lr${LR}_wu20_${TRAIN_ITERS}steps"
+export WANDB_NAME="poziomka_kd_run18_bielik_v3_instruct_v8_nothink_19pct_rkl_ceeos_k10_gbs64_lr${LR}_wu20_${TRAIN_ITERS}steps"
 export WANDB_MODE="online"
 
 save_parent="$(dirname "${SAVE_CHECKPOINT}")"

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from poziomka_data import FORMAT, SPECIAL_IDS, MMapSFTDataset, sha256
-from poziomka_kd_data import MMapKDDataset, label_coverage
+from poziomka_kd_data import THINK_OFF_BLOCK, MMapKDDataset, label_coverage, mask_think_block
 
 K = 4
 
@@ -85,6 +85,22 @@ def test_rejects_other_cache():
             assert "different cache" in str(e)
         else:
             raise AssertionError("mismatched teacher accepted")
+
+
+def test_think_block_matches_apt4_and_masks_only_it():
+    from tokenizers import Tokenizer
+    tok = Tokenizer.from_file(str(Path(__file__).resolve().parents[3] / "resource/tokenizer/apt4/tokenizer.json"))
+    # Dwie tury v13 bez rozumowania, jak w cache (labels = ids[1:]).
+    text = ("<s><|im_start|>user\nJak?<|im_end|>\n<|im_start|>assistant\n<think></think>\nTak.<|im_end|>\n"
+            "<|im_start|>user\nA czemu?<|im_end|>\n<|im_start|>assistant\n<think></think>\n**Bo** tak.<|im_end|>\n")
+    ids = np.array(tok.encode(text, add_special_tokens=False).ids, dtype=np.int64)
+    labels, mask = ids[1:], np.ones(len(ids) - 1, dtype=np.float32)
+    assert mask_think_block(labels, mask) == 2
+    assert int((mask == 0).sum()) == 2 * len(THINK_OFF_BLOCK)
+    # Zamaskowane są dokładnie tokeny bloku, a token tuż po nim (początek odpowiedzi) nie.
+    for start in np.flatnonzero(mask[:-1] - mask[1:] == 1) + 1:
+        assert (labels[start:start + len(THINK_OFF_BLOCK)] == THINK_OFF_BLOCK).all()
+        assert mask[start + len(THINK_OFF_BLOCK)] == 1
 
 
 if __name__ == "__main__":

@@ -33,6 +33,8 @@ def extra_args(parser):
                         help="teacher-topk-v1 directory computed from exactly this cache")
     parser.add_argument("--kd-logit-chunk", type=int, default=1024,
                         help="positions per log-softmax chunk in the KD loss")
+    parser.add_argument("--kd-mask-think", action="store_true",
+                        help="no loss on the v13 '<think></think>\\n' block (teacher without reasoning)")
     return parser
 
 
@@ -114,9 +116,9 @@ def datasets_provider(sample_counts):
         raise ValueError("Cache chat template changed after preparation")
     last = parallel_state.is_pipeline_last_stage(ignore_virtual=True)
     train = MMapKDDataset(manifest_path, "train", args.teacher_topk, sample_counts[0], args.seed,
-                          pack=True, with_teacher=last)
+                          pack=True, with_teacher=last, mask_think=args.kd_mask_think)
     valid = MMapKDDataset(manifest_path, "validation", args.teacher_topk, sample_counts[1], args.seed,
-                          shuffle=False, pack=True, with_teacher=last)
+                          shuffle=False, pack=True, with_teacher=last, mask_think=args.kd_mask_think)
     if last:
         # Alignment guard: labels must sit among the teacher's top-k almost always.
         coverage = label_coverage(train)
@@ -126,7 +128,8 @@ def datasets_provider(sample_counts):
             raise ValueError("Teacher top-k does not line up with the cache labels")
     print_rank_0(f"KD: {train.record_count} train conversations packed into {train.sample_count} "
                  f"sequences ({100 * train.packing_efficiency():.1f}% real tokens); "
-                 f"{valid.record_count} validation; teacher {train.teacher['model']} k={train.k}")
+                 f"{valid.record_count} validation; teacher {train.teacher['model']} k={train.k}; "
+                 f"think block masked: {args.kd_mask_think}")
     return train, valid, None
 
 

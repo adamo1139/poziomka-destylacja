@@ -16,6 +16,11 @@ import numpy as np
 from poziomka_data import MMapSFTDataset, sha256
 
 TEACHER_FORMAT = "teacher-topk-v1"
+# "<think></think>\n" w turze asystenta szablonu v13 (bez rozumowania), tokeny APT4 w kontekście
+# "<|im_start|>assistant\n<think></think>\n…": < th ink > < / th ink > \n. Nauczyciel bez
+# rozumowania (Bielik v3 Instruct, zwykły ChatML) nigdy go nie widział, więc jego rozkład na tych
+# pozycjach jest bezwartościowy — z mask_think loss_mask jest tam 0.
+THINK_OFF_BLOCK = np.array([31981, 1531, 11141, 31977, 31981, 31965, 1531, 11141, 31977, 17], dtype=np.int64)
 
 
 def check_teacher(teacher_dir, manifest_path):
@@ -47,8 +52,10 @@ class MMapKDDataset(MMapSFTDataset):
     loss don't need to read ~2 MB of teacher rows per sample).
     """
 
-    def __init__(self, manifest_path, split, teacher_dir, *args, with_teacher=True, **kwargs):
+    def __init__(self, manifest_path, split, teacher_dir, *args, with_teacher=True, mask_think=False,
+                 **kwargs):
         super().__init__(manifest_path, split, *args, **kwargs)
+        self.mask_think = mask_think
         self.teacher_dir = Path(teacher_dir).resolve()
         self.teacher = check_teacher(self.teacher_dir, manifest_path)
         self.k = self.teacher["k"]
@@ -80,6 +87,8 @@ class MMapKDDataset(MMapSFTDataset):
 
     def __getitem__(self, index):
         sample = super().__getitem__(index)
+        if self.mask_think:
+            mask_think_block(sample["labels"], sample["loss_mask"])
         if not self.with_teacher:
             return sample
         # Padding rows: id 0 with log p 0 -- finite garbage, masked by loss_mask.
@@ -97,6 +106,18 @@ class MMapKDDataset(MMapSFTDataset):
             filled += size
         sample["topk_ids"], sample["topk_logp"] = ids, logp
         return sample
+
+
+def mask_think_block(labels, loss_mask):
+    """Zeruje loss_mask na każdym wystąpieniu THINK_OFF_BLOCK w labels (w miejscu); zwraca liczbę bloków."""
+    n = len(THINK_OFF_BLOCK)
+    if len(labels) < n:
+        return 0
+    windows = np.lib.stride_tricks.sliding_window_view(labels, n)
+    starts = np.flatnonzero((windows == THINK_OFF_BLOCK).all(axis=1))
+    for s in starts:
+        loss_mask[s:s + n] = 0
+    return len(starts)
 
 
 def label_coverage(dataset, samples=4):

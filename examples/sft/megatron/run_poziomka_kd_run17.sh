@@ -115,5 +115,5 @@ if (( free_gb < needed_gb )); then
 fi
 
 exec bash "${SCRIPT_DIR}/run_poziomka.sh" \
-    --teacher-topk "${TEACHER_TOPK}" --kd-mask-think \
+    --teacher-topk "${TEACHER_TOPK}" --kd-mask-think --log-throughput \
     --wandb-project "${WANDB_PROJECT}" --wandb-exp-name "${WANDB_NAME}" "$@"

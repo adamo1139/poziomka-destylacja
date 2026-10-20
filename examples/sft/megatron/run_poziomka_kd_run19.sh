@@ -2,13 +2,14 @@
 set -euo pipefail
 
 # Run 19: przepis run 18 (v8-nothink, loss tylko na odpowiedziach asystenta: --loss-roles assistant +
-# --kd-mask-think, --kd-ce-on-eos, 100% reverse KL do top-10, LR 2e-4 stale, warmup 20, start z
+# --kd-mask-think, --kd-ce-on-eos, 100% reverse KL, LR 2e-4 stale, warmup 20, start z
 # run 15, tylko koncowy checkpoint), ale:
 # - nauczyciel: INSTRUKTOR (Bielik-PL-Minitron-7B po nauka-lotnictwa-2, W8A8) zamiast Bielika v3
 #   Instruct -- ten sam co w run 16, teraz z nowym przepisem (bez rozumowania, bez tur uzytkownika,
 #   bez bloku think, CE na <|im_end|>);
 # - dane: 50% v8-nothink (8 z 16 shardow train, subset_cache.py), walidacja cala;
-# - GBS 256 (run 18: 64).
+# - GBS 256 (run 18: 64);
+# - top-40 nauczyciela (run 17/18: top-10).
 # Wznowienie: RESUME=1 bash run_poziomka_kd_run19.sh.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,9 +23,9 @@ fi
 export MEGATRON_PATH
 export TRAIN_SCRIPT=train_poziomka_kd.py
 export SFT_DATA="/media/nvme_2tb/maked/poziomka_train/poziomka-sft-cache-polskie-sprawy-v8-nothink-50pct-v13-16384"
-export TEACHER_TOPK="/media/nvme_2tb/maked/bielik_train/teacher-topk-instruktor-v8-nothink-50pct-k10"
+export TEACHER_TOPK="/media/nvme_2tb/maked/bielik_train/teacher-topk-instruktor-v8-nothink-50pct-k40"
 RUN15="/media/nvme_2tb/maked/poziomka_train/poziomka_sft_run15_polskie_sprawy_v8_v13_16384_gbs16"
-export SAVE_CHECKPOINT="/media/nvme_2tb/maked/poziomka_train/poziomka_kd_run19_instruktor_v8_nothink_50pct_rkl_ceeos_k10_gbs256"
+export SAVE_CHECKPOINT="/media/nvme_2tb/maked/poziomka_train/poziomka_kd_run19_instruktor_v8_nothink_50pct_rkl_ceeos_k40_gbs256"
 export RESUME="${RESUME:-0}"
 if [[ "${RESUME}" == 1 ]]; then
     export LOAD_CHECKPOINT="${SAVE_CHECKPOINT}"
@@ -78,8 +79,8 @@ if cache["totals"]["train"]["records"] != 8 * 75303:
     sys.exit(f"Expected 602,424 train records (8 of 16 shards of v8-nothink), found {cache['totals']['train']['records']:,}")
 if teacher["cache_manifest_sha256"] != hashlib.sha256(open(cache_path, "rb").read()).hexdigest():
     sys.exit("Teacher top-k was computed for a different cache")
-if teacher["k"] != 10:
-    sys.exit(f"Expected top-10 teacher, found k={teacher['k']}")
+if teacher["k"] != 40:
+    sys.exit(f"Expected top-40 teacher, found k={teacher['k']}")
 train = MMapSFTDataset(cache_path, "train", pack=True)
 valid = MMapSFTDataset(cache_path, "validation", pack=True, shuffle=False)
 iters, eval_iters = math.ceil(len(train.bins) / gbs), math.ceil(len(valid.bins) / gbs)
@@ -97,7 +98,7 @@ export TRAIN_ITERS EVAL_ITERS
 
 export WANDB_ENTITY="adamo1139-no"
 export WANDB_PROJECT="poziomka-destylacja"
-export WANDB_NAME="poziomka_kd_run19_instruktor_v8_nothink_50pct_rkl_ceeos_k10_gbs256_lr${LR}_wu20_${TRAIN_ITERS}steps"
+export WANDB_NAME="poziomka_kd_run19_instruktor_v8_nothink_50pct_rkl_ceeos_k40_gbs256_lr${LR}_wu20_${TRAIN_ITERS}steps"
 export WANDB_MODE="online"
 
 save_parent="$(dirname "${SAVE_CHECKPOINT}")"
